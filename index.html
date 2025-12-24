@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nokia 3310 Snake</title>
+    <style>
+        :root {
+            --nokia-green: #8dbd14;
+            --nokia-dark: #000000;
+            --nokia-shadow: #7a9e10;
+            --phone-body: #d1d5db;
+        }
+
+        body {
+            background-color: #1a1a1a;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none;
+            overflow: hidden;
+        }
+
+        /* Phone Frame */
+        #phone-shell {
+            background: var(--phone-body);
+            padding: 40px 20px 60px 20px;
+            border-radius: 40px 40px 100px 100px;
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.5), 10px 10px 30px rgba(0,0,0,0.8);
+            border: 4px solid #999;
+            position: relative;
+            max-width: 90vw;
+        }
+
+        #screen-border {
+            background: #222;
+            padding: 15px;
+            border-radius: 10px;
+            border: 5px solid #444;
+            box-shadow: inset 0 0 10px #000;
+        }
+
+        #game-screen {
+            background-color: var(--nokia-green);
+            position: relative;
+            width: 300px;
+            height: 300px;
+            image-rendering: pixelated;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ui-overlay {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            right: 5px;
+            display: flex;
+            justify-content: space-between;
+            color: var(--nokia-dark);
+            font-size: 14px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Menu / Game Over State */
+        #message-box {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--nokia-green);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            z-index: 20;
+            display: none;
+        }
+
+        #message-box h2 {
+            margin: 0;
+            font-size: 24px;
+            text-transform: uppercase;
+        }
+
+        #message-box p {
+            margin: 10px 0;
+            font-weight: bold;
+        }
+
+        .btn {
+            background: var(--nokia-dark);
+            color: var(--nokia-green);
+            border: none;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            margin-top: 10px;
+        }
+
+        .btn:active {
+            opacity: 0.8;
+        }
+
+        /* Controls */
+        #controls {
+            margin-top: 30px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            width: 180px;
+        }
+
+        .d-btn {
+            width: 50px;
+            height: 50px;
+            background: #333;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            user-select: none;
+            box-shadow: 0 4px #000;
+            border: 1px solid #555;
+        }
+
+        .d-btn:active {
+            box-shadow: 0 1px #000;
+            transform: translateY(3px);
+        }
+
+        .up { grid-column: 2; }
+        .left { grid-column: 1; grid-row: 2; }
+        .down { grid-column: 2; grid-row: 2; }
+        .right { grid-column: 3; grid-row: 2; }
+
+        @media (max-width: 400px) {
+            #game-screen {
+                width: 240px;
+                height: 240px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="phone-shell">
+        <div id="screen-border">
+            <div id="game-screen">
+                <div class="ui-overlay">
+                    <span id="score-display">00</span>
+                    <span id="hi-score-display">HI 00</span>
+                </div>
+
+                <div id="message-box">
+                    <h2 id="msg-title">Snake</h2>
+                    <p id="msg-body">Press Start</p>
+                    <button class="btn" id="start-btn">Start</button>
+                </div>
+
+                <canvas id="canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Phone Buttons for Mobile -->
+        <div id="controls">
+            <div class="d-btn up" onclick="setDirection('UP')">▲</div>
+            <div class="d-btn left" onclick="setDirection('LEFT')">◀</div>
+            <div class="d-btn down" onclick="setDirection('DOWN')">▼</div>
+            <div class="d-btn right" onclick="setDirection('RIGHT')">▶</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score-display');
+        const hiScoreEl = document.getElementById('hi-score-display');
+        const msgBox = document.getElementById('message-box');
+        const msgTitle = document.getElementById('msg-title');
+        const msgBody = document.getElementById('msg-body');
+        const startBtn = document.getElementById('start-btn');
+
+        // Game Constants
+        const GRID_SIZE = 20;
+        let TILE_SIZE; 
+        
+        let snake = [];
+        let food = {};
+        let direction = 'RIGHT';
+        let nextDirection = 'RIGHT';
+        let score = 0;
+        let hiScore = 0;
+        let gameLoop = null;
+        let isPaused = true;
+        let speed = 120;
+
+        function init() {
+            // Adjust canvas size to internal resolution
+            canvas.width = 400;
+            canvas.height = 400;
+            TILE_SIZE = canvas.width / GRID_SIZE;
+
+            resetGame();
+            showMenu(true);
+        }
+
+        function resetGame() {
+            snake = [
+                {x: 10, y: 10},
+                {x: 9, y: 10},
+                {x: 8, y: 10}
+            ];
+            direction = 'RIGHT';
+            nextDirection = 'RIGHT';
+            score = 0;
+            updateUI();
+            placeFood();
+        }
+
+        function placeFood() {
+            food = {
+                x: Math.floor(Math.random() * GRID_SIZE),
+                y: Math.floor(Math.random() * GRID_SIZE)
+            };
+            // Prevent food from spawning on snake
+            for (let part of snake) {
+                if (part.x === food.x && part.y === food.y) {
+                    return placeFood();
+                }
+            }
+        }
+
+        function setDirection(dir) {
+            if (isPaused) return;
+            const opposites = { 'UP': 'DOWN', 'DOWN': 'UP', 'LEFT': 'RIGHT', 'RIGHT': 'LEFT' };
+            if (dir !== opposites[direction]) {
+                nextDirection = dir;
+            }
+        }
+
+        // Handle Keyboard
+        window.addEventListener('keydown', e => {
+            switch(e.key) {
+                case 'ArrowUp': setDirection('UP'); break;
+                case 'ArrowDown': setDirection('DOWN'); break;
+                case 'ArrowLeft': setDirection('LEFT'); break;
+                case 'ArrowRight': setDirection('RIGHT'); break;
+            }
+        });
+
+        function update() {
+            direction = nextDirection;
+            const head = { ...snake[0] };
+
+            if (direction === 'UP') head.y--;
+            if (direction === 'DOWN') head.y++;
+            if (direction === 'LEFT') head.x--;
+            if (direction === 'RIGHT') head.x++;
+
+            // Screen Wrap Logic
+            if (head.x < 0) head.x = GRID_SIZE - 1;
+            if (head.x >= GRID_SIZE) head.x = 0;
+            if (head.y < 0) head.y = GRID_SIZE - 1;
+            if (head.y >= GRID_SIZE) head.y = 0;
+
+            // Check Collision with self
+            for (let part of snake) {
+                if (head.x === part.x && head.y === part.y) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            snake.unshift(head);
+
+            // Check Food
+            if (head.x === food.x && head.y === food.y) {
+                score += 10;
+                if (score > hiScore) hiScore = score;
+                updateUI();
+                placeFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function draw() {
+            // Clear Screen
+            ctx.fillStyle = "#8dbd14";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Snake
+            snake.forEach((part, index) => {
+                ctx.fillStyle = "#000000";
+                // Head has a slightly different look
+                if (index === 0) {
+                    ctx.fillRect(part.x * TILE_SIZE, part.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    // Eyes
+                    ctx.fillStyle = "#8dbd14";
+                    const eyeSize = 2;
+                    if (direction === 'UP' || direction === 'DOWN') {
+                        ctx.fillRect(part.x * TILE_SIZE + 4, part.y * TILE_SIZE + 8, eyeSize, eyeSize);
+                        ctx.fillRect(part.x * TILE_SIZE + 14, part.y * TILE_SIZE + 8, eyeSize, eyeSize);
+                    } else {
+                        ctx.fillRect(part.x * TILE_SIZE + 8, part.y * TILE_SIZE + 4, eyeSize, eyeSize);
+                        ctx.fillRect(part.x * TILE_SIZE + 8, part.y * TILE_SIZE + 14, eyeSize, eyeSize);
+                    }
+                } else {
+                    ctx.fillRect(part.x * TILE_SIZE + 1, part.y * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                }
+            });
+
+            // Draw Food (Classic Pixel Look)
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(food.x * TILE_SIZE + 4, food.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+        }
+
+        function updateUI() {
+            scoreEl.innerText = score.toString().padStart(2, '0');
+            hiScoreEl.innerText = "HI " + hiScore.toString().padStart(2, '0');
+        }
+
+        function showMenu(show, title = "Snake", body = "Press Start") {
+            isPaused = show;
+            msgBox.style.display = show ? 'flex' : 'none';
+            msgTitle.innerText = title;
+            msgBody.innerText = body;
+        }
+
+        function gameOver() {
+            clearInterval(gameLoop);
+            showMenu(true, "Game Over", "Score: " + score);
+            startBtn.innerText = "Restart";
+        }
+
+        function startGame() {
+            resetGame();
+            showMenu(false);
+            if (gameLoop) clearInterval(gameLoop);
+            gameLoop = setInterval(() => {
+                update();
+                draw();
+            }, speed);
+        }
+
+        startBtn.onclick = startGame;
+
+        window.onload = init;
+    </script>
+</body>
+</html>
